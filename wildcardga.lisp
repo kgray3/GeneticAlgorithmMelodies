@@ -1,8 +1,11 @@
 ; Global variable for the # of atoms in pitch-string
-( setf *limit* 25 )
-( setf *CMAJOR* '(C D E F G A B c C2 D2 E2 F2 G2 A2 B2 c2 
-                        C/2 D/2 E/2 F/2 G/2 A/2 B/2 c/2) )
+( setf *limit* 26 )
 
+; Only supports C major key...could add more keys in the future
+( setf *CMAJOR* '(C D E F G A B C2 D2 E2 F2 G2 A2 B2 
+                        C/2 D/2 E/2 F/2 G/2 A/2 B/2) )
+
+; Global var for adding more keys in the future
 ( setf *CURRENT-KEY* *CMAJOR* )
 
 ; Function that returns a random pitch in the specified pitch-list
@@ -32,11 +35,11 @@
 ; Method that mutates a given list
 ( defmethod mutation ( ( pitch-str list ) &aux position symbol )
     ( setf position ( random ( length pitch-str ) ) )
-    ( setf symbol ( others *CMAJOR* ( nth position pitch-str ) ) )
+    ( setf symbol ( others *CURRENT-KEY* ( nth position pitch-str ) ) )
     ( change pitch-str ( pick symbol ) position )
 )
 
-; Recursive method that returns list of pitches from *CMAJOR* excluding
+; Recursive method that returns list of pitches from *CURRENT-KEY* excluding
 ; the parameter atom
 ( defmethod others ( ( li list ) pitch )
     ( cond
@@ -131,12 +134,11 @@
     ; use mod to account for duplicate notes with different durations
     ( cond
         (( > (length li ) 1 )
-            ( setf first-pitch-int ( mod ( position ( car li ) *CURRENT-KEY* ) 8 ) )
-            ( setf second-pitch-int ( mod ( position ( cadr li ) *CURRENT-KEY* ) 8 ) )
+            ( setf first-pitch-int ( mod ( position ( car li ) *CURRENT-KEY* ) 7 ) )
+            ( setf second-pitch-int ( mod ( position ( cadr li ) *CURRENT-KEY* ) 7 ) )
             ( setf pitch-distance ( abs ( - first-pitch-int second-pitch-int ) ) )
         )
     )
-    ;( format t "~A ~A ~A ~%" ( car li ) ( cadr li ) pitch-distance )
     (cond
         (( = ( length li ) 1 )
             0
@@ -159,13 +161,13 @@
 )
 
 ; Fitness method that favors pairs of notes
-;    -if the length of the list is odd: reward for similar notes
-;    -if the length of the list is even: reward for different notes 
+;    -if the length of the list is odd: reward +1 for similar notes
+;    -if the length of the list is even: reward +1 for different notes 
 ( defmethod fitness-pairs ( ( li list ) )
     ( cond 
         (( > ( length li ) 1)
-            ( setf first-pitch-int ( mod ( position ( car li ) *CURRENT-KEY* ) 8 ) )
-            ( setf second-pitch-int ( mod ( position ( cadr li ) *CURRENT-KEY* ) 8 ) )
+            ( setf first-pitch-int ( mod ( position ( car li ) *CURRENT-KEY* ) 7 ) )
+            ( setf second-pitch-int ( mod ( position ( cadr li ) *CURRENT-KEY* ) 7 ) )
             ( setf pitch-distance ( abs ( - first-pitch-int second-pitch-int ) ) )
         )
     )
@@ -173,11 +175,11 @@
         (( = ( length li ) 1 )
             0
         )
-        ; odd = same, evens = different
-        (( and ( = ( mod ( length li ) 2 ) 1 ) ( = 0 pitch-distance ) )
+        ; odd length = different note pair, even length = same note pair
+        (( and ( = ( mod ( length li ) 2 ) 1 ) ( > pitch-distance 0 ) )
                 ( + 1 ( fitness-pairs ( cdr li ) ) )
         )
-        (( and ( = ( mod ( length li ) 2 ) 0 ) ( > pitch-distance 0 ) )
+        (( and ( = ( mod ( length li ) 2 ) 0 ) ( = pitch-distance 0 ) )
             ( + 1 ( fitness-pairs ( cdr li ) ) )
         )
         (t
@@ -188,13 +190,13 @@
 
 ; Fitness method that favors melodies with ascending jumps and
 ; descending lines of two or three or four notes
-;    -award 1 point for pitch-distance greater than 1
-;    -award 1 point for pitch-distance equal to -1
+;    -award +1 point for pitch-distance greater than 1
+;    -award +1 point for pitch-distance equal to -1
 ( defmethod fitness-ascending-jumps ( ( li list ) )
     (cond
         (( > ( length li ) 1 )
-            ( setf first-pitch-int ( mod ( position ( car li ) *CURRENT-KEY* ) 8 ) )
-            ( setf second-pitch-int ( mod ( position ( cadr li ) *CURRENT-KEY* ) 8 ) )
+            ( setf first-pitch-int ( mod ( position ( car li ) *CURRENT-KEY* ) 7 ) )
+            ( setf second-pitch-int ( mod ( position ( cadr li ) *CURRENT-KEY* ) 7 ) )
             ( setf pitch-distance ( - first-pitch-int second-pitch-int ) )
         )
     )
@@ -221,12 +223,14 @@
 )
 
 ; Helper recursion method that favors slashing melodies consisting of ascending and descending lines of two
-; or three or four notes
-( defmethod fitness-slashing-helper ( ( li list ) direction notes-num )
+; or three or four notes -- prev-pitch-dist stores pitch distance of previous note pair
+; -+1 if stepwise for 2, 3, or 4 notes in a row
+
+( defmethod fitness-slashing-helper ( ( li list ) prev-pitch-dist notes-num )
     ( cond 
         (( > ( length li ) 1 )
-            ( setf first-pitch-int ( mod ( position ( car li ) *CURRENT-KEY* ) 8 ) )
-            ( setf second-pitch-int ( mod ( position ( cadr li ) *CURRENT-KEY* ) 8 ) )
+            ( setf first-pitch-int ( mod ( position ( car li ) *CURRENT-KEY* ) 7 ) )
+            ( setf second-pitch-int ( mod ( position ( cadr li ) *CURRENT-KEY* ) 7 ) )
             ( setf pitch-distance ( - first-pitch-int second-pitch-int ) )
         )
     )
@@ -237,10 +241,11 @@
         (   ( and 
                 ( > notes-num 0 )
                 ( < notes-num 3 )
-                ( fitness-ascending-descending-p direction pitch-distance )
+                ( fitness-ascending-descending-p prev-pitch-dist pitch-distance )
             )
             ( + 1 ( fitness-slashing-helper ( cdr li ) pitch-distance ( + notes-num 1 ) ) )
         )
+        ; check if first two notes are stepwise, if so, reward +1
         ( ( and 
                 ( or ( = pitch-distance 1 ) ( = pitch-distance -1 ) )
                 ( = notes-num 0 )
@@ -254,7 +259,7 @@
 
 )
 
-; predicate used to determine if notes are ascending/descending compared to a previous
+; Predicate used to determine if notes are stepwise ascending/descending compared to a previous
 ; direction
 ( defmethod fitness-ascending-descending-p ( prev-direction pitch-distance )
         ( or 
@@ -269,14 +274,14 @@
     ( fitness-zig-zag-helper li 0 )
 )
 ; Recursive helper method method for fitness-zig-zag
-;   -+1 point is rewarded for turning on degree 1, 3, 5, or 7
+;   -+1 point is rewarded for turning (stepwise) on degree 1, 3, 5, or 7
 ;   -+0.6 is rewarded for stepwise motion
-;   -+0.2 is rewarded for repeated notes
-( defmethod fitness-zig-zag-helper ( ( li list ) direction )
+;   -+0.3 is rewarded for repeated notes
+( defmethod fitness-zig-zag-helper ( ( li list ) prev-pitch-dist )
     (cond 
         (( > ( length li ) 1 )
-            ( setf first-pitch-int ( mod ( position ( car li ) *CURRENT-KEY* ) 8 ) )
-            ( setf second-pitch-int ( mod ( position ( cadr li ) *CURRENT-KEY* ) 8 ) )
+            ( setf first-pitch-int ( mod ( position ( car li ) *CURRENT-KEY* ) 7 ) )
+            ( setf second-pitch-int ( mod ( position ( cadr li ) *CURRENT-KEY* ) 7 ) )
             ( setf pitch-distance ( - first-pitch-int second-pitch-int ) )
         )
     )
@@ -285,7 +290,7 @@
             0
         )
         (   (and 
-                ( fitness-zig-zag-p direction pitch-distance )
+                ( fitness-zig-zag-p prev-pitch-dist pitch-distance )
                 ( or 
                     ( = ( + first-pitch-int 1 ) 1 )
                     ( = ( + first-pitch-int 1 ) 3 )
@@ -308,14 +313,15 @@
     )
 )
 
+; Predicate function to check if a note pair "zig zags" based on note before
 ( defmethod fitness-zig-zag-p ( prev-direction pitch-distance )
     ( or 
-        ( and ( = pitch-distance 1 ) ( = prev-direction -1 ) )
-        ( and ( = pitch-distance -1 ) ( = prev-direction -1 ) )
+        ( and ( = pitch-distance 1 ) ( < prev-direction 0 ) )
+        ( and ( = pitch-distance -1 ) ( > prev-direction 0 ) )
     )
 )
 
-; Method to test the three fitness methods
+; Method to test the five fitness methods
 ( defmethod fitness-demo (&aux x fitness)
     ( setf x ( pitch-string ) )
     ( format t "x = ~A~%" x )
