@@ -136,7 +136,7 @@
         (( > (length li ) 1 )
             ( setf first-pitch-int ( mod ( position ( car li ) *CURRENT-KEY* ) 7 ) )
             ( setf second-pitch-int ( mod ( position ( cadr li ) *CURRENT-KEY* ) 7 ) )
-            ( setf pitch-distance ( abs ( - first-pitch-int second-pitch-int ) ) )
+            ( setf pitch-distance ( abs ( - second-pitch-int first-pitch-int ) ) )
         )
     )
     (cond
@@ -161,29 +161,28 @@
 )
 
 ; Fitness method that favors pairs of notes
-;    -if the length of the list is odd: reward +1 for similar notes
-;    -if the length of the list is even: reward +1 for different notes 
+;    -reward +1 if first and second notes are equal if last two notes
+;    -reward +1 if first note = second note and first note pitch != third note pitch
 ( defmethod fitness-pairs ( ( li list ) )
-    ( cond 
-        (( > ( length li ) 1)
+    ( cond
+        (( > (length li ) 2 )
             ( setf first-pitch-int ( mod ( position ( car li ) *CURRENT-KEY* ) 7 ) )
-            ( setf second-pitch-int ( mod ( position ( cadr li ) *CURRENT-KEY* ) 7 ) )
-            ( setf pitch-distance ( abs ( - first-pitch-int second-pitch-int ) ) )
+            ( setf third-pitch-int ( mod ( position ( third li ) *CURRENT-KEY* ) 7 ) )
+            ( setf pitch-distance ( abs ( - third-pitch-int first-pitch-int ) ) )
         )
     )
     (cond
-        (( = ( length li ) 1 )
+        (( < ( length li ) 2 )
             0
         )
-        ; odd length = different note pair, even length = same note pair
-        (( and ( = ( mod ( length li ) 2 ) 1 ) ( > pitch-distance 0 ) )
-                ( + 1 ( fitness-pairs ( cdr li ) ) )
+        ((AND ( equal ( car li ) ( second li )  ) ( = ( length li ) 2 ) )
+                ( + 1 ( fitness-pairs ( cddr li ) ) )
         )
-        (( and ( = ( mod ( length li ) 2 ) 0 ) ( = pitch-distance 0 ) )
-            ( + 1 ( fitness-pairs ( cdr li ) ) )
+        ((AND ( equal ( car li ) ( second li ) ) ( not ( = 0 pitch-distance ) ) )
+            (+ 1 ( fitness-pairs ( cddr li ) ) )
         )
         (t
-            ( + 0 ( fitness-pairs ( cdr li ) ) )
+            ( + 0 ( fitness-pairs ( cddr li ) ) )
         )
     )
 )
@@ -197,7 +196,7 @@
         (( > ( length li ) 1 )
             ( setf first-pitch-int ( mod ( position ( car li ) *CURRENT-KEY* ) 7 ) )
             ( setf second-pitch-int ( mod ( position ( cadr li ) *CURRENT-KEY* ) 7 ) )
-            ( setf pitch-distance ( - first-pitch-int second-pitch-int ) )
+            ( setf pitch-distance ( - second-pitch-int first-pitch-int ) )
         )
     )
     (cond
@@ -231,7 +230,7 @@
         (( > ( length li ) 1 )
             ( setf first-pitch-int ( mod ( position ( car li ) *CURRENT-KEY* ) 7 ) )
             ( setf second-pitch-int ( mod ( position ( cadr li ) *CURRENT-KEY* ) 7 ) )
-            ( setf pitch-distance ( - first-pitch-int second-pitch-int ) )
+            ( setf pitch-distance ( - second-pitch-int first-pitch-int ) )
         )
     )
     ( cond 
@@ -282,7 +281,7 @@
         (( > ( length li ) 1 )
             ( setf first-pitch-int ( mod ( position ( car li ) *CURRENT-KEY* ) 7 ) )
             ( setf second-pitch-int ( mod ( position ( cadr li ) *CURRENT-KEY* ) 7 ) )
-            ( setf pitch-distance ( - first-pitch-int second-pitch-int ) )
+            ( setf pitch-distance ( - second-pitch-int first-pitch-int ) )
         )
     )
     (cond 
@@ -344,6 +343,11 @@
     ( format t "fitness-zig-zag = ~A~%" ( funcall fitness x ) )
 )
 
+; Class for an individual in a population
+; -fields:
+;       -melody -> pitch-string
+;       -fitness -> the fitness of the pitch-string
+;       -number -> the number of the individual in the population
 ( defclass individual () 
     (
         ( melody :accessor individual-melody :initarg :melody )
@@ -352,6 +356,7 @@
     )
 )
 
+; Method for creating a random individual object
 ( defmethod random-individual (&aux melody )
     ( setf melody ( pitch-string ) )
     ( make-instance 'individual 
@@ -361,6 +366,7 @@
     )
 )
 
+; Method to create a new individual with number and pitch string inputs
 ( defmethod new-individual ( ( nr number ) ( notes list ) )
     ( make-instance 'individual 
         :melody notes 
@@ -369,10 +375,12 @@
     )
 )
 
+; Method to display an individual
 ( defmethod display ( ( i individual ) )
     ( display-nnl i ) ( terpri )
 )
 
+; Method to display an individual with better format
 ( defmethod display-nnl ( ( i individual ) )
     ( prin1 ( individual-number i ) )
     ( princ ( filler ( individual-number i ) ) )
@@ -382,6 +390,7 @@
     ( princ ( filler ( individual-fitness i ) ) )
 )
 
+; Method to create space based on number passed in
 ( defmethod filler ( ( n number ) )
     ( cond
         ( ( < n 10 ) "     " )
@@ -392,16 +401,29 @@
     )
 )
 
+; Method for fitness-stepwise-motion with individual param
 ( defmethod fitness-stepwise-motion ( ( i individual ) )
     ( fitness-stepwise-motion ( individual-melody i ) )
 )
 
+; Method for fitness-pairs with individual param
 ( defmethod fitness-pairs ( ( i individual ) )
     ( fitness-pairs ( individual-melody i ) )
 )
 
+; Method for fitness-ascending-jumps with individual param
 ( defmethod fitness-ascending-jumps ( ( i individual ) )
     ( fitness-ascending-jumps ( individual-melody i ) )
+)
+
+; Method for fitness-stepwise-slashing with individual param
+( defmethod fitness-stepwise-slashing ( ( i individual ) )
+    ( fitness-stepwise-slashing ( individual-melody i ) )
+)
+
+; Method for fitness-zig-zag with individual param
+( defmethod fitness-zig-zag ( ( i individual ) )
+    ( fitness-zig-zag ( individual-melody i ) )
 )
 
 ; Demo for individual class methods
@@ -425,9 +447,17 @@
     nil
 )
 
+; Global variable for population size
 ( defconstant *population-size* 100 )
+; Size of population sample for selection
 ( defconstant *selection-size* 8 )
+; Fitness function for testing
 ( setf *fitness* #'fitness-stepwise-motion )
+
+; Class for population
+;   Field:
+;       -individuals -> all of the individuals (objs) in a population
+;       -generation -> generation #
 ( defclass population ()
     (
         ( individuals :accessor population-individuals :initarg :individuals )
@@ -435,10 +465,12 @@
     )
 )
 
+; Method to determine the number of individuals in a population
 ( defmethod size ( ( p population ) )
     ( length ( population-individuals p ) )
 )
 
+; Method to display a population
 ( defmethod display ( ( p population ) )
     ( terpri ) ( terpri )
     ( princ "Generation " )
@@ -451,6 +483,8 @@
     ( terpri )
 )
 
+; Method to create an initial population
+; -populates with individuals based on *population-size* parameter
 ( defmethod initial-population (&aux individuals )
     ( setf individuals () )
     ( dotimes ( i *population-size* )
@@ -459,13 +493,16 @@
     ( make-instance 'population :individuals ( reverse individuals ) )
 )
 
+; Method to determine the average fitness of population
+; -uses mapcar to convert individuals to a list of fitness metrics
+; -then calls on helper method to sum all fitness
 ( defmethod average ( ( p population ) &aux ( sum 0 ) )
     ( setf indiv-list ( population-individuals p ) )
     ( setf sum ( sum-nums ( mapcar #'individual-fitness indiv-list ) ) )
     ( float ( / sum *population-size* ) )
 )
 
-; helper method that calculates the sum of a list of numbers
+; Helper method that calculates the sum of a list of numbers
 ( defmethod sum-nums ( ( li list ) )
     (cond
         ((null li)
@@ -477,8 +514,10 @@
     )
 )
 
+; Param for printing extra info during demo mode
 ( setf *select-demo*  nil )
 
+; Method that obtains selection sample and most fit individual from sample
 ( defmethod select-individual ( ( p population ) 
     &aux i candidates rn )
     ( setf candidates ( select-individuals p ) )
@@ -487,6 +526,7 @@
     mfi
 )
 
+; Method that selects random individuals from the population for selection
 ( defmethod select-individuals ( ( p population )
     &aux individuals candidates rn )
     ( setf individuals ( population-individuals p ) )
@@ -498,13 +538,15 @@
     candidates
 )
 
+; Method that selects the individual with the largest fitness metric from
+; a list
 ( defmethod most-fit-individual ( ( l list ) &aux max-value max-individual )
     ( setf max-individual ( max-val l 0 ) )
     ( setf max-value ( individual-fitness max-individual ) )
     max-individual
 )
 
-; helper method that returns the individual with maximum fitness using recursion
+; Helper method that returns the individual with maximum fitness using recursion
 ( defmethod max-val ( ( l list ) current-max )
     (cond
         ((null l)
@@ -519,6 +561,7 @@
     )
 )
 
+; Demo method for selection
 ( defmethod select-demo-helper ( ( l list ) ( i individual ) )
     ( princ "the sample of individuals ..." ) ( terpri )
     ( mapcar #'display l )
@@ -529,6 +572,7 @@
     nil
 )
 
+; Demo method for population
 ( defmethod population-demo (&aux p)
     ( setf p ( initial-population ) )
     ( display p )
@@ -542,6 +586,8 @@
     ( select-individual p ) ( terpri )
 )
 
+; Method that mutates an individual and returns a new instance
+; of the mutated individual
 ( defmethod mutate ( ( i individual ) &aux mutation )
     ( setf mutation ( mutation ( individual-melody i ) ) )
     ( make-instance 'individual
@@ -551,8 +597,11 @@
     )
 )
 
+; Global variable for the percent mutation
 ( defconstant *pc-m* 50 )
 
+; Method that determines when an individual mutates
+; based on percent mutation
 ( defmethod maybe-mutate ( ( i individual ) )
     ( if ( <= ( + 1 ( random 100 ) ) *pc-m* )
         ( mutate i )
@@ -560,6 +609,7 @@
     )
 )
 
+; Demo method for mutate
 ( defmethod mutate-demo ()
     ( setf i ( random-individual ) )
     ( display i )
@@ -569,6 +619,7 @@
     )
 )
 
+; Demo method for maybe-mutate
 ( defmethod maybe-mutate-demo ()
     ( setf i ( random-individual ) )
     ( display i )
@@ -581,20 +632,27 @@
     )
 )
 
+; Global bool for "demo mode"
 ( setf *copy-demo* nil )
 
+; Global variable for percentage of copies
 ( defconstant *pc-c* 40 )
 
+; Method that performs copies based on the number of copies specified
 ( defmethod perform-copies ( ( cp population ) ( np population ) )
     ( dotimes ( i ( nr-copies ) )
         ( perform-one-copy cp np )
     )
 )
 
+; Method that determines the number of copies based on
+; population size and percent copies
 ( defmethod nr-copies ()
     ( * ( / *pc-c* 100 ) *population-size* )
 )
 
+; Method that selects an individual, maybe-mutates, and copies that individual
+; to the new population
 ( defmethod perform-one-copy ( ( cp population ) ( np population ) 
     &aux x m mm new-i )
     ( setf m ( select-individual cp ) )
@@ -614,6 +672,7 @@
     nil   
 )
 
+; Method that clears a population 
 ( defmethod empty-population ( ( cp population ) &aux np ) 
     ( setf np ( make-instance 'population ) )
     ( setf ( population-individuals np ) () )
@@ -621,6 +680,7 @@
     np
 )
 
+; Demo method for perform-copies
 ( defmethod perform-copies-demo ( &aux cp np )
     ( setf cp ( initial-population ) )
     ( setf np ( empty-population cp ) )
@@ -640,20 +700,28 @@
     nil
 )
 
+; Global bool demoing crossover
 ( setf *crossover-demo* nil )
 
+; Percentage of crossovers
 ( defconstant *pc-x* 60 )
 
+; Method that performs crossovers a certain number of times
 ( defmethod perform-crossovers ( ( cp population ) ( np population ) )
     ( dotimes ( i ( nr-crossovers ) )
         ( perform-one-crossover cp np )
     )
 )
 
+; Method that generates the number of crossovers based
+; on percent crossovers and population-size
 ( defmethod nr-crossovers ()
     ( * ( / *pc-x* 100 ) *population-size* )
 )
 
+; Method that performs one crossover by selecting a mother
+; and father, maybe mutating, combining, and adding the
+; resultant individual to the new population
 ( defmethod perform-one-crossover ( ( cp population ) ( np population ) )
     ( let ( x m mm mother father new-i )
         ( setf mother ( select-individual cp ) )
@@ -680,6 +748,8 @@
     nil
 )
 
+; Method that performs the crossover of the melody strings of two
+; individuals
 ( defmethod crossover ( ( mother individual ) ( father individual ) 
     &aux mi fi x i )
     ( setf mi ( individual-melody mother ) )
@@ -689,6 +759,7 @@
     i
 )
 
+; Demo method for perform-crossovers
 ( defmethod perform-crossovers-demo ( &aux cp np )
     ( setf cp ( initial-population ) )
     ( setf np ( empty-population cp ) )
@@ -707,7 +778,8 @@
 )
 
 ;; THE NEXT GENERATION METHOD FOR THE GA
-
+; Create an empty population -> perform copies -> perform-crossovers -> return new
+; generation
 ( defmethod next-generation ( ( cp population ) &aux np )
     ( setf np ( empty-population cp ) )
     ( perform-copies cp np )
@@ -716,9 +788,12 @@
 )
 
 ;; THE GA!
+; Number of generations
 ( defconstant *nr-generations* 25 )
 
+; The Genetic algorithm :) -- runs 5 fitnes methods
 ( defmethod ga ( &aux p )
+    
     ( format t "STEPWISE MOTION MELODIES! ~%~%" )
     ( setf *fitness* #'fitness-stepwise-motion )
     ( setf p ( initial-population ) )
@@ -730,6 +805,7 @@
     )
     ( terpri )
     ( summarize p )
+    ( setf stepwise-melody-f  ( most-fit-individual ( population-individuals p )  ) )
     ( format t "PAIR-WISE MELODIES! ~%~%" )
     ( setf *fitness* #'fitness-pairs )
     ( dotimes ( i *nr-generations* )
@@ -738,6 +814,7 @@
     )
     ( terpri )
     ( summarize p )
+    ( setf pairwise-melody-f ( most-fit-individual ( population-individuals p ) ) )
     ( format t "ASCENDING JUMPS AND STEPWISE DECLINES MELODIES! ~%~%" )
     ( setf *fitness* #'fitness-ascending-jumps )
     ( dotimes ( i *nr-generations* )
@@ -746,6 +823,7 @@
     )
     ( terpri )
     ( summarize p )
+    ( setf ascending-jumps-melody-f ( most-fit-individual ( population-individuals p ) ) )
     ( format t "STEPWISE SLASHING MELODIES! ~%~%" )
     ( setf *fitness* #'fitness-stepwise-slashing )
     ( dotimes ( i *nr-generations* )
@@ -754,6 +832,7 @@
     )
     ( terpri )
     ( summarize p )
+    ( setf stepwise-slashing-melody-f ( most-fit-individual ( population-individuals p ) ) )
     ( format t "ZIG-ZAG MELODIES! ~%~%" )
     ( setf *fitness* #'fitness-zig-zag )
     ( dotimes ( i *nr-generations* )
@@ -762,10 +841,28 @@
     )
     ( terpri )
     ( summarize p )
+    ( setf zig-zag-melody-f ( most-fit-individual ( population-individuals p ) ) )
+
+    ( format t "~%Most fit stepwise melody: " )
+    ( display stepwise-melody-f )
+
+    ( format t "~%Most fit pairwise melody: " )
+    ( display pairwise-melody-f )
+
+    ( format t "~%Most fit ascending jumps/stepwise decline melody: " )
+    ( display ascending-jumps-melody-f )
+
+    ( format t "~%Most fit stepwise slashing melody: " )
+    ( display stepwise-slashing-melody-f )
+
+    ( format t "~%Most fit zig zag melody: " )
+    ( display zig-zag-melody-f )
+
 )
 
 ;; METHODS TO PROVIDE INFORMATION ON "PROGRESS"
 
+; Methods that display the population averages for each generation
 ( defmethod summarize ( ( p population ) )
     ( display p )
     ( check-average p )
@@ -773,7 +870,7 @@
 )
 
 ( defmethod check-average ( ( p population ) )
-    ( format t "avearge fitness of population ~A = ~A~%" 
+    ( format t "average fitness of population ~A = ~A~%" 
         ( population-generation p )
         ( average p )
     )
